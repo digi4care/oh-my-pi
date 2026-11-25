@@ -343,8 +343,8 @@ describe("ovnfs checkout recovery", () => {
 			expect(forgetDaemon).toHaveBeenCalledTimes(1);
 			expect(featureDiscovery).toHaveBeenCalledTimes(2);
 			expect(featureDiscovery.mock.calls.map(([socket]) => socket)).toEqual([firstSocket, restartedSocket]);
-			expect(startDaemon).toHaveBeenCalledTimes(3);
-			expect(startedSockets).toEqual([firstSocket, restartedSocket, restartedSocket]);
+			expect(startDaemon).toHaveBeenCalledTimes(2);
+			expect(startedSockets).toEqual([firstSocket, restartedSocket]);
 			expect(socketCall).toHaveBeenCalledTimes(1);
 			expect(socketCall.mock.calls[0]?.[0]).toBe(restartedSocket);
 			expect(socketCall.mock.calls[0]?.[1]).toBe("new");
@@ -368,6 +368,71 @@ describe("ovnfs checkout recovery", () => {
 			});
 		},
 	);
+	it("rediscovers features and retries the new operation after the daemon disappears", async () => {
+		const firstSocket = "/tmp/ovnfs-before-restart.sock";
+		const restartedSocket = "/tmp/ovnfs-after-restart.sock";
+		const startedSockets: string[] = [];
+		const startDaemon = vi.spyOn(daemon, "startDaemon").mockImplementation(async () => {
+			const socket = startedSockets.length === 0 ? firstSocket : restartedSocket;
+			startedSockets.push(socket);
+			return { socket };
+		});
+		const forgetDaemon = vi.spyOn(daemon, "forgetDaemon").mockImplementation(() => {});
+		const featureDiscovery = vi
+			.spyOn(client, "socketFeatures")
+			.mockResolvedValueOnce(new Set())
+			.mockResolvedValueOnce(new Set(["new.session"]));
+		const socketCall = vi.spyOn(client, "callSocket").mockImplementation(async <T>(
+			_socket: string,
+			_op: string,
+			_args: object,
+		): Promise<T> => {
+			if (_socket === firstSocket) {
+				throw Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" });
+			}
+			return {
+				checkout: {
+					name: "recovered-checkout",
+					path: "/mnt/ovnfs/recovered-checkout",
+					base: "base",
+					created: "now",
+				},
+			} as T;
+		});
+
+		const reply = await newCheckout(COMMAND, {
+			dir: "/repo",
+			name: "recovered-checkout",
+			session: "parent-session",
+		});
+
+		expect(forgetDaemon).toHaveBeenCalledTimes(1);
+		expect(startDaemon).toHaveBeenCalledTimes(2);
+		expect(startedSockets).toEqual([firstSocket, restartedSocket]);
+		expect(featureDiscovery.mock.calls.map(([socket]) => socket)).toEqual([firstSocket, restartedSocket]);
+		expect(socketCall).toHaveBeenCalledTimes(2);
+		expect(socketCall.mock.calls.map(([socket, op, args]) => ({ socket, op, args }))).toEqual([
+			{
+				socket: firstSocket,
+				op: "new",
+				args: { dir: "/repo", name: "recovered-checkout" },
+			},
+			{
+				socket: restartedSocket,
+				op: "new",
+				args: { dir: "/repo", name: "recovered-checkout", session: "parent-session" },
+			},
+		]);
+		expect(reply).toEqual({
+			checkout: {
+				name: "recovered-checkout",
+				path: "/mnt/ovnfs/recovered-checkout",
+				base: "base",
+				created: "now",
+			},
+		});
+	});
+
 
 	it("propagates non-connection feature discovery errors without forgetting or retrying", async () => {
 		const discoveryError = new Error("feature discovery failed");

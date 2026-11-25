@@ -37,8 +37,10 @@ export interface NewReply {
  */
 export async function newCheckout(command: string, args: NewArgs): Promise<NewReply> {
 	const { session, ...rest } = args;
-	const recorded = session && (await callRecoverable(command, socket => socketFeatures(socket))).has("new.session");
-	return callOvnfs<NewReply>(command, "new", recorded ? args : rest);
+	return callRecoverable(command, async socket => {
+		const recorded = session && (await socketFeatures(socket)).has("new.session");
+		return callSocket<NewReply>(socket, "new", recorded ? args : rest);
+	});
 }
 
 /** One operation on the daemon `command` manages, starting it again once if it went away. */
