@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { clearWorktrees } from "@oh-my-pi/pi-coding-agent/cli/worktree-cli";
 import { setWorktreesDir } from "@oh-my-pi/pi-utils";
 import * as client from "../../src/ovnfs/client";
+import { newCheckout } from "../../src/ovnfs/checkouts";
 import type { SingleResult } from "@oh-my-pi/pi-coding-agent/task/task-details";
 import * as daemon from "../../src/ovnfs/daemon";
 import { ISOLATION_OWNER_FILE } from "../../src/task/isolation-ownership";
@@ -299,6 +300,97 @@ describe("ovnfs checkout recovery", () => {
 		failRemoval = false;
 		await workspace.cleanup();
 		await expect(fs.stat(baseDir)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it.each(["ECONNREFUSED", "ENOENT"] as const)(
+		"restarts feature discovery after %s and includes the session on the checkout",
+		async code => {
+			const opened: DaemonOp[] = [];
+			mockDaemon(op => {
+				if (op.op !== "new" || !op.name) throw new Error(op.op);
+				opened.push(op);
+				return {
+					checkout: {
+						name: op.name,
+						path: `/mnt/ovnfs/${op.name}`,
+						base: "base",
+						created: "now",
+					},
+				};
+			});
+
+			const firstSocket = "/tmp/ovnfs-before-restart.sock";
+			const restartedSocket = "/tmp/ovnfs-after-restart.sock";
+			const startedSockets: string[] = [];
+			const startDaemon = vi.spyOn(daemon, "startDaemon").mockImplementation(async () => {
+				const socket = startedSockets.length === 0 ? firstSocket : restartedSocket;
+				startedSockets.push(socket);
+				return { socket };
+			});
+			const forgetDaemon = vi.spyOn(daemon, "forgetDaemon").mockImplementation(() => {});
+			const featureDiscovery = vi
+				.spyOn(client, "socketFeatures")
+				.mockRejectedValueOnce(Object.assign(new Error("daemon unavailable"), { code }))
+				.mockResolvedValue(new Set(["new.session"]));
+			const socketCall = vi.spyOn(client, "callSocket");
+
+			const reply = await newCheckout(COMMAND, {
+				dir: "/repo",
+				name: "recovered-checkout",
+				session: "parent-session",
+			});
+
+			expect(forgetDaemon).toHaveBeenCalledTimes(1);
+			expect(featureDiscovery).toHaveBeenCalledTimes(2);
+			expect(featureDiscovery.mock.calls.map(([socket]) => socket)).toEqual([firstSocket, restartedSocket]);
+			expect(startDaemon).toHaveBeenCalledTimes(3);
+			expect(startedSockets).toEqual([firstSocket, restartedSocket, restartedSocket]);
+			expect(socketCall).toHaveBeenCalledTimes(1);
+			expect(socketCall.mock.calls[0]?.[0]).toBe(restartedSocket);
+			expect(socketCall.mock.calls[0]?.[1]).toBe("new");
+			expect(socketCall.mock.calls[0]?.[2]).toMatchObject({ session: "parent-session" });
+			expect(opened).toEqual([
+				{
+					op: "new",
+					checkout: undefined,
+					name: "recovered-checkout",
+					base: undefined,
+					session: "parent-session",
+				},
+			]);
+			expect(reply).toEqual({
+				checkout: {
+					name: "recovered-checkout",
+					path: "/mnt/ovnfs/recovered-checkout",
+					base: "base",
+					created: "now",
+				},
+			});
+		},
+	);
+
+	it("propagates non-connection feature discovery errors without forgetting or retrying", async () => {
+		const discoveryError = new Error("feature discovery failed");
+		mockDaemon(() => {
+			throw new Error("new should not be called");
+		});
+		const startDaemon = vi.spyOn(daemon, "startDaemon");
+		const forgetDaemon = vi.spyOn(daemon, "forgetDaemon").mockImplementation(() => {});
+		const featureDiscovery = vi.spyOn(client, "socketFeatures").mockRejectedValue(discoveryError);
+		const socketCall = vi.spyOn(client, "callSocket");
+
+		await expect(
+			newCheckout(COMMAND, {
+				dir: "/repo",
+				name: "unavailable-features",
+				session: "parent-session",
+			}),
+		).rejects.toBe(discoveryError);
+
+		expect(startDaemon).toHaveBeenCalledTimes(1);
+		expect(featureDiscovery).toHaveBeenCalledTimes(1);
+		expect(forgetDaemon).not.toHaveBeenCalled();
+		expect(socketCall).not.toHaveBeenCalled();
 	});
 
 	it("records the spawning session on the checkout only for a daemon that takes it", async () => {

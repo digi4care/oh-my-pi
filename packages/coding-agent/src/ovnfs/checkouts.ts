@@ -37,20 +37,29 @@ export interface NewReply {
  */
 export async function newCheckout(command: string, args: NewArgs): Promise<NewReply> {
 	const { session, ...rest } = args;
-	const recorded = session && (await socketFeatures((await startDaemon(command)).socket)).has("new.session");
+	const recorded = session && (await callRecoverable(command, socket => socketFeatures(socket))).has("new.session");
 	return callOvnfs<NewReply>(command, "new", recorded ? args : rest);
 }
 
 /** One operation on the daemon `command` manages, starting it again once if it went away. */
 export async function callOvnfs<T>(command: string, op: string, args: object): Promise<T> {
+	return callRecoverable(command, socket => callSocket<T>(socket, op, args));
+}
+
+/**
+ * Run `fn` against the socket of the daemon `command` manages, forgetting the
+ * cached daemon and starting it again exactly once when the call fails because
+ * the daemon went away (ECONNREFUSED/ENOENT); other errors propagate.
+ */
+async function callRecoverable<T>(command: string, fn: (socket: string) => Promise<T>): Promise<T> {
 	const { socket } = await startDaemon(command);
 	try {
-		return await callSocket<T>(socket, op, args);
+		return await fn(socket);
 	} catch (err) {
 		const code = (err as NodeJS.ErrnoException).code;
 		if (code !== "ECONNREFUSED" && code !== "ENOENT") throw err;
 		forgetDaemon(command);
-		return callSocket<T>((await startDaemon(command)).socket, op, args);
+		return fn((await startDaemon(command)).socket);
 	}
 }
 

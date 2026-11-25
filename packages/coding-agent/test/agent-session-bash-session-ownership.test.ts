@@ -77,7 +77,7 @@ describe("AgentSession bash session ownership", () => {
 	}
 
 	function createGatedBashRunner() {
-		const completion = Promise.withResolvers<{ result: typeof bashResult }>();
+		const completion = Promise.withResolvers<{ result: typeof bashResult } | undefined>();
 		const emitUserBash = vi.fn(() => completion.promise);
 		const extensionRunner = {
 			hasHandlers: vi.fn((eventType: string) => eventType === "user_bash"),
@@ -408,7 +408,7 @@ describe("AgentSession bash session ownership", () => {
 	});
 
 	it.each(["new", "switch", "branch"] as const)(
-		"records a late bash result in its original session after %s",
+		"records a late bash result and shell environment in its original session after %s",
 		async transition => {
 			const sessionDir = path.join(tempDir.path(), "sessions");
 			const { completion, emitUserBash, extensionRunner } = createGatedBashRunner();
@@ -416,6 +416,7 @@ describe("AgentSession bash session ownership", () => {
 			const oldSessionFile = await seedPersistedSession();
 			const oldSessionId = session.sessionId;
 
+			const executeBashSpy = vi.spyOn(bashExecutor, "executeBash").mockResolvedValue(bashResult);
 			const bashPromise = session.executeBash("old-session-command");
 			expect(emitUserBash).toHaveBeenCalledTimes(1);
 
@@ -447,8 +448,14 @@ describe("AgentSession bash session ownership", () => {
 			}
 
 			expect(session.sessionId).not.toBe(oldSessionId);
-			completion.resolve({ result: bashResult });
+			expect(session.sessionManager.getSessionFile()).not.toBe(oldSessionFile);
+			completion.resolve(undefined);
 			await bashPromise;
+			expect(executeBashSpy).toHaveBeenCalledTimes(1);
+			expect(executeBashSpy.mock.calls[0]?.[1]?.env).toMatchObject({
+				PI_SESSION_ID: oldSessionId,
+				PI_SESSION_FILE: oldSessionFile,
+			});
 
 			expect(
 				session.messages.some(

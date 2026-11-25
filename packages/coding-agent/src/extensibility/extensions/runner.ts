@@ -2816,7 +2816,7 @@ export class ExtensionRunner {
 		if (!this.hasHandlers("before_agent_start")) return undefined;
 		const ctx = this.createContext();
 		const messages: NonNullable<BeforeAgentStartEventResult["message"]>[] = [];
-		let currentSystemPrompt = systemPrompt;
+		let currentSystemPrompt = Array.isArray(systemPrompt) ? systemPrompt : [];
 		let systemPromptModified = false;
 
 		for (const ext of this.extensions) {

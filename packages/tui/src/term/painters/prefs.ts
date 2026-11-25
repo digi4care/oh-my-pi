@@ -793,7 +793,7 @@ function paintWindow(node: UiNode, cx: PaintContext): Block {
 	rows.push(frameRule(theme, width, theme.symbols.box.teeRight, theme.symbols.box.teeLeft));
 	if (searching) {
 		const field = searchNode?.props();
-		const cursor = field && "cursor" in field && typeof field.cursor === "number" ? field.cursor : undefined;
+		const cursor = field && "cursor" in field && typeof field.cursor === "number" ? field.cursor : props.cursor;
 		rows.push(frameRow(theme, searchBanner(theme, props, cursor, inner), width));
 	}
 	for (let i = 0; i < contentRows; i++) rows.push(frameRow(theme, content[i] ?? "", width));

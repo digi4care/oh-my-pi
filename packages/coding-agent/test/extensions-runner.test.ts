@@ -1090,6 +1090,35 @@ describe("ExtensionRunner", () => {
 			expect(override).toBeUndefined();
 			expect(original).toEqual(["first", "second"]);
 		});
+		it("normalizes an undefined system prompt before dispatching handlers", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.on("before_agent_start", event => {
+						if (event.systemPrompt !== "" || JSON.stringify(event.systemPromptBlocks) !== "[]") {
+							throw new Error("undefined system prompt was not normalized");
+						}
+						return { systemPrompt: "handler-ran" };
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "before-agent-start-undefined.ts"), extCode);
+			const result = await loadTestExtensions();
+			const runner = new ExtensionRunner(
+				result.extensions,
+				result.runtime,
+				tempDir.path(),
+				sessionManager,
+				modelRegistry,
+			);
+			const errors: ExtensionError[] = [];
+			runner.onError(error => errors.push(error));
+
+			// Exercise the runtime boundary even though the TypeScript API requires an array.
+			const override = await runner.emitBeforeAgentStart("hello", undefined, undefined as unknown as string[]);
+
+			expect(errors).toEqual([]);
+			expect(override).toEqual({ systemPrompt: ["handler-ran"] });
+		});
 	});
 
 	describe("before_provider_request chaining", () => {

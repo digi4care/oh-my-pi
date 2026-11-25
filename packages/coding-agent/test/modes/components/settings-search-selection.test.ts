@@ -68,4 +68,23 @@ describe("settings search selection", () => {
 		expect(highlightedTab(term)).toBe("");
 		expect(settingsScreen(term)).toContain("No matching settings");
 	});
+	it("keeps the saved search caret in the banner when opening a text editor", () => {
+		const term = mountSettingsWindow();
+		term.type("restricted");
+		term.press("left");
+		term.press("left");
+		term.press("left");
+		expect(selectedRow(term)).toContain("Restricted Folders");
+
+		term.press("enter");
+
+		const prefs = term.surface.layer()[0]!;
+		expect(prefs.props()).toMatchObject({
+			query: "restricted",
+			cursor: 7,
+			editing: { row: "tools.restrictedFolders", draft: "[]", cursor: 2 },
+		});
+		expect(prefs.children().some(node => node.kind === "input")).toBe(false);
+		expect(term.rows().some(row => row.includes("restric\x1b[7mt\x1b[27med"))).toBe(true);
+	});
 });

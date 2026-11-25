@@ -1293,9 +1293,6 @@ export function SettingsWindow(props: {
 				cursor={() => query().cursor}
 				placeholder="Search settings"
 				onEdit={onSearchEdit}
-				// A click into the field asks for the focus; the keys stay the window's (`onKey`), whose
-				// first field this is: a click elsewhere in the window takes them back from the composer.
-				onFocus={() => {}}
 			/>
 		);
 
@@ -1313,6 +1310,9 @@ export function SettingsWindow(props: {
 				return SETTINGS_PAGES[id].lead;
 			}}
 			query={() => (searching() ? query().text : undefined)}
+			// The terminal banner's caret while the search child steps aside (an open editor, the
+			// plugins page); the child's own `cursor` wins whenever the field is present.
+			cursor={() => (searching() ? query().cursor : undefined)}
 			sections={() => plugins()?.sections ?? (tab() === PLUGINS_PAGE && !searching() ? [] : sections())}
 			focus={() => {
 				const page = plugins();

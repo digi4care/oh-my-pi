@@ -1,4 +1,7 @@
 /** @jsxImportSource @oh-my-pi/pi-tui */
+import { resetSettingsForTest, Settings } from "../../../coding-agent/src/config/settings";
+import { createSettingsHost } from "../../../coding-agent/src/config/settings-ui";
+import { SettingsWindow } from "../../../coding-agent/src/ui/overlays/settings/settings";
 import { afterEach, describe, expect, it } from "bun:test";
 import {
 	createSurface,
@@ -33,6 +36,7 @@ interface Harness {
 	ops(): TspOp[];
 }
 
+const settingsCleanups: (() => void)[] = [];
 const harnesses: Harness[] = [];
 afterEach(() => {
 	for (const h of harnesses.splice(0)) {
@@ -40,8 +44,8 @@ afterEach(() => {
 		h.connection.close();
 		h.surface.dispose();
 	}
+	for (const cleanup of settingsCleanups.splice(0)) cleanup();
 });
-
 async function mount(template: () => SurfaceTemplate, options: FakeTernOptions = {}): Promise<Harness> {
 	const tern = new FakeTern(options);
 	const clock = new ManualClock();
@@ -1441,6 +1445,41 @@ describe("native events", () => {
 		h.settle();
 		expect(h.surface.focused()).toBe(composer);
 		expect(h.tern.doc("s:t").focus).toBe(h.backend.idOf(composer)!);
+	});
+	it("focuses SettingsWindow search from the composer and bubbles its keys to prefs", async () => {
+		resetSettingsForTest();
+		await Settings.init({ inMemory: true });
+		settingsCleanups.push(resetSettingsForTest);
+
+		let composer!: UiNode;
+		const h = await mount(() => ({
+			dock: <editor key="composer" ref={node => (composer = node)} />,
+			layer: SettingsWindow({
+				context: {
+					settings: createSettingsHost(),
+					availableThinkingLevels: [],
+					availableThemes: ["dark", "light"],
+					providers: [],
+				},
+				callbacks: { onChange: () => {}, onCancel: () => {} },
+			}),
+		}));
+		const prefs = h.surface.layer()[0]!;
+		const search = prefs.children().find(node => node.kind === "input" && node.key() === "search")!;
+		const composerId = h.backend.idOf(composer)!;
+		const searchId = h.backend.idOf(search)!;
+
+		h.surface.focus(composer);
+		h.settle();
+		expect(h.tern.doc("s:t").focus).toBe(composerId);
+		h.tern.event({ ev: "focus", sf: "s:t", id: searchId });
+		h.settle();
+		expect(h.surface.focused()).toBe(search);
+		expect(h.tern.doc("s:t").focus).toBe(searchId);
+
+		h.tern.input({ type: "key", key: { id: "d", text: "d", kind: "press", raw: "d" } });
+		h.settle();
+		expect(prefs.props()).toMatchObject({ query: "d", cursor: 1 });
 	});
 
 	it("moves focus on an unhandled focus event and routes keys up the focus path", async () => {

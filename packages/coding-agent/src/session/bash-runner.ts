@@ -94,6 +94,10 @@ export class BashRunner {
 		let targetTransferred = false;
 		const excludeFromContext = options?.excludeFromContext === true;
 		const cwd = this.#host.sessionManager.getCwd();
+		// Captured pre-hook alongside target.sessionId: a /new, switch, or branch
+		// while the user_bash hook is pending must not pair the old ID with the
+		// new session's file in the child shell's environment.
+		const sessionFile = this.#host.sessionManager.getSessionFile();
 		try {
 			const extensionRunner = this.#host.extensionRunner();
 			if (extensionRunner?.hasHandlers("user_bash")) {
@@ -142,7 +146,7 @@ export class BashRunner {
 					onMinimizedSave: originalText => this.#saveOriginalArtifact(target, originalText),
 					env: {
 						...shellEnv,
-						...sessionShellEnv({ id: target.sessionId, file: this.#host.sessionManager.getSessionFile() }),
+						...sessionShellEnv({ id: target.sessionId, file: sessionFile }),
 					},
 					useUserShell: options?.useUserShell,
 					pty: options?.pty,
