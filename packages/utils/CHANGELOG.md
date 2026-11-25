@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed path containment checks treating a file or directory whose name starts with `..` as outside its parent ([#20482](https://github.com/can1357/oh-my-pi/pull/20482) by [@H4vC](https://github.com/H4vC))
+
 ## [19.2.0] - 2026-11-25
 
 ### Fixed
