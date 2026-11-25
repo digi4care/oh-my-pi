@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `pathIsWithinLexical()` for containment checks that must not resolve symlinks or fold case ([#20481](https://github.com/can1357/oh-my-pi/pull/20481) by [@H4vC](https://github.com/H4vC))
+
 ## [19.2.0] - 2026-11-25
 
 ### Fixed
